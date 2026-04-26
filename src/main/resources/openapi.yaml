@@ -1,0 +1,674 @@
+openapi: 3.0.3
+info:
+  title: UniDoc API
+  description: |
+    API for the UniDoc system, a platform designed to facilitate the access, organization, and sharing of academic articles.
+    Authentication:
+      - The client authenticates using Firebase Auth
+      - A Firebase ID Token (JWT) must be sent in the Authorization header
+      - The backend validates the token and extracts the user UID
+    File Upload:
+      - Uses AWS pre-signed URLs
+      - The client uploads files directly to S3 using HTTP PUT
+      - Pre-signed URLs are time-limited and can only be used once
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local environment
+
+tags:
+  - name: Users
+    description: Operations related to user profile management.
+  - name: Articles
+    description: Operations related to exploring and publishing academic articles.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+          example: 500
+        error:
+          type: string
+        message:
+          type: string
+      required:
+        - timestamp
+        - status
+        - error
+        - message
+
+    WorkType:
+      type: string
+      enum:
+        - JOURNAL_ARTICLE
+        - CONFERENCE_PAPER
+        - REVIEW_PAPER
+        - UNDERGRAD_THESIS
+        - GRADUATE_THESIS
+        - TECHNICAL_REPORT
+        - OTHER
+
+    UserProfile:
+      type: object
+      properties:
+        firstName:
+          type: string
+          example: "Mary"
+        lastName:
+          type: string
+          example: "Jones"
+        birthDate:
+          type: string
+          format: date
+          example: "2006-04-07"
+        university:
+          type: string
+          example: "UNICAMP"
+      required:
+        - firstName
+        - lastName
+        - birthDate
+        - university
+
+    UserInfo:
+      type: object
+      properties:
+        firstName:
+          type: string
+          example: "Mary"
+        lastName:
+          type: string
+          example: "Jones"
+        birthDate:
+          type: string
+          format: date
+          example: "2006-04-07"
+        university:
+          type: string
+          example: "UNICAMP"
+        email:
+          type: string
+          format: email
+          example: "mary@email.com"
+        totalPublishedArticles:
+          type: integer
+          example: 10
+        totalBoosts:
+          type: integer
+          example: 55
+      required:
+        - firstName
+        - lastName
+        - birthDate
+        - university
+        - email
+        - totalPublishedArticles
+        - totalBoosts
+
+    UpdateUserProfile:
+      description: |
+        Partial update of user profile.
+        All fields are optional.
+      type: object
+      properties:
+        firstName:
+          type: string
+          example: "Mary"
+        lastName:
+          type: string
+          example: "Jones"
+        birthDate:
+          type: string
+          format: date
+          example: "2006-04-07"
+        university:
+          type: string
+          example: "UNICAMP"
+
+    ArticlePreview:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 14
+        title:
+          type: string
+          example: "Alice in Wonderland"
+        authors:
+          type: array
+          example: ["Lewis Carroll", "John Tenniel"]
+          items:
+            type: string
+        workType:
+          $ref: '#/components/schemas/WorkType'
+        boostCount:
+          type: integer
+          example: 105
+      required:
+        - id
+        - title
+        - authors
+        - workType
+        - boostCount
+
+    PaginatedArticlePreview:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArticlePreview'
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 10
+        totalElements:
+          type: integer
+          example: 100
+        totalPages:
+          type: integer
+          example: 10
+        last:
+          type: boolean
+          example: false
+      required:
+        - content
+        - page
+        - size
+        - totalElements
+        - totalPages
+        - last
+
+    ArticleView:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 14
+        title:
+          type: string
+          example: "Alice in Wonderland"
+        authors:
+          type: array
+          example: ["Lewis Carroll", "John Tenniel"]
+          items:
+            type: string
+        publicationDate:
+          type: string
+          format: date
+          example: "1865-11-26"
+        workType:
+          $ref: '#/components/schemas/WorkType'
+        abstract:
+          type: string
+          example: "Alice's Adventures in Wonderland (1865) by Lewis Carroll tells the story of a young girl named Alice who falls down a rabbit hole into a nonsensical dream world"
+        boostCount:
+          type: integer
+          example: 105
+        coverUrl:
+          type: string
+          format: uri
+        boostedByMe:
+          type: boolean
+      required:
+        - id
+        - title
+        - authors
+        - publicationDate
+        - workType
+        - abstract
+        - boostCount
+        - coverUrl
+
+    ArticleUrl:
+      type: object
+      properties:
+        pdfUrl:
+          type: string
+          format: uri
+      required:
+        - pdfUrl
+
+    ArticleRegistration:
+      type: object
+      properties:
+        title:
+          type: string
+          example: "Alice in Wonderland"
+        authors:
+          type: array
+          example: ["Lewis Carroll", "John Tenniel"]
+          items:
+            type: string
+        publicationDate:
+          type: string
+          format: date
+          example: "1865-11-26"
+        workType:
+          $ref: '#/components/schemas/WorkType'
+        abstract:
+          type: string
+          example: "Alice's Adventures in Wonderland (1865) by Lewis Carroll tells the story of a young girl named Alice who falls down a rabbit hole into a nonsensical dream world"
+        hasCover:
+          type: boolean
+      required:
+        - title
+        - authors
+        - publicationDate
+        - workType
+        - abstract
+        - hasCover
+
+    ArticleUploadInstruction:
+      type: object
+      properties:
+        articleId:
+          type: integer
+        pdfUploadUrl:
+          type: string
+          format: uri
+        coverUploadUrl:
+          type: string
+          format: uri
+      required:
+        - articleId
+        - pdfUploadUrl
+
+    BoostResponse:
+      type: object
+      properties:
+        boosted:
+          type: boolean
+        boostCount:
+          type: integer
+      required:
+        - boosted
+        - boostCount
+
+paths:
+  /users:
+    post:
+      tags:
+        - Users
+      summary: Create user profile
+      description: Creates application-specific user data after Firebase authentication.
+      operationId: createUserProfile
+      security:
+        - bearerAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserProfile'
+      responses:
+        '201':
+          description: User profile created successfully
+        '400':
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid or missing token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /users/me:
+    get:
+      tags:
+        - Users
+      summary: Get current user profile
+      description: Retrieve the authenticated user's profile using Firebase UID.
+      operationId: getCurrentUser
+      security:
+        - bearerAuth: [ ]
+      responses:
+        '200':
+          description: User profile returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfo'
+        '400':
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid or missing token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags:
+        - Users
+      summary: Update user profile
+      description: Update the authenticated user's profile.
+      operationId: updateUserProfile
+      security:
+        - bearerAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserProfile'
+      responses:
+        '200':
+          description: User profile updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInfo'
+        '400':
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid or missing token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /articles:
+    get:
+      tags:
+        - Articles
+      summary: Search articles
+      description: |
+        Returns a paginated list of articles matching the search criteria.
+        Pagination:
+        - page starts at 0
+        - size has a default of 10 and a maximum of 50
+      operationId: searchArticles
+      parameters:
+        - name: query
+          in: query
+          description: Keyword or set of keywords.
+          required: false
+          schema:
+            type: string
+        - name: minYear
+          in: query
+          description: Filter for works published after this year.
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: workType
+          in: query
+          description: Filter by work type. If omitted, returns all work types.
+          required: false
+          schema:
+            $ref: '#/components/schemas/WorkType'
+        - name: page
+          in: query
+          description: Page number (0-based)
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          description: Number of items per page
+          required: false
+          schema:
+            type: integer
+            default: 10
+        - name: sort
+          in: query
+          description: Sort criteria
+          required: false
+          schema:
+            type: string
+            enum:
+              - TITLE
+              - PUBLICATION_DATE
+              - WORK_TYPE
+              - BOOST_COUNT
+            default: BOOST_COUNT
+      responses:
+        '200':
+          description: List of articles found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedArticlePreview'
+        '400':
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags:
+        - Articles
+      summary: Register article and get upload instructions
+      description: |
+        Registers article metadata and returns pre-signed URLs for file upload.
+        - The client must upload the PDF using HTTP PUT
+        - If hasCover is true, a coverUploadUrl will also be provided
+        - Upload must be completed before the URL expires
+      operationId: registerArticle
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArticleRegistration'
+      responses:
+        '201':
+          description: Metadata saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticleUploadInstruction'
+        '400':
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid or missing token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /articles/{id}:
+    get:
+      tags:
+        - Articles
+      summary: View article details
+      description: See complete information for a specific article.
+      operationId: getArticleDetails
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Article details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticleView'
+        '400':
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Article not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /articles/{id}/file:
+    get:
+      tags:
+        - Articles
+      summary: Access/Open article
+      description: |
+        Returns a pre-signed URL to access the article PDF file.
+        - The URL is time-limited
+        - The file is stored in AWS S3
+      operationId: getArticleFile
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: PDF Document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticleUrl'
+        '400':
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid or missing token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Article not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /articles/{id}/boost:
+    post:
+      tags:
+        - Articles
+      summary: Toggle boost on article
+      description: |
+        Toggles the boost state for the authenticated user.
+        - If the user has not boosted the article, a boost is added
+        - If the user has already boosted the article, the boost is removed
+        - Each user can have at most one boost per article
+      operationId: toggleBoost
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Boost state updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BoostResponse'
+        '400':
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid or missing token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Article not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
