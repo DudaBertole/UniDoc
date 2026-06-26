@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import me.dudabertole.unidoc.model.WorkType;
+import org.hibernate.annotations.Formula;
 
 @Entity
 @Table(name = "articles")
@@ -74,4 +75,7 @@ public class Article {
     @Builder.Default
     private Set<User> boostedBy = new HashSet<>();
     // Using Set prevents duplicate entries in memory, pk_article_boosts
+
+    @Formula("(SELECT count(ab.user_id) FROM article_boosts ab WHERE ab.article_id = id)")
+    private Integer boostCount;
 }
