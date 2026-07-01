@@ -6,6 +6,7 @@ import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 @Entity
 @Table(name = "users")
@@ -19,7 +20,7 @@ public class User {
     @Id
     @EqualsAndHashCode.Include
     @Column(name = "id", nullable = false, updatable = false)
-    private String id;
+    private UUID id;
 
     @Column(name = "first_name", nullable = false)
     private String firstName;

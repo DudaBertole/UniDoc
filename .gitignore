@@ -5,6 +5,7 @@ target/
 !**/src/test/**/target/
 !**/src/test/main/resources
 !**/src/main/resources
+src/main/resources
 notas.md
 
 

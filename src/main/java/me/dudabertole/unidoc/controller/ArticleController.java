@@ -34,10 +34,6 @@ public class ArticleController implements ArticlesApi {
 
     private final ArticleService articleService;
 
-//    public ArticleController(ArticleService service, ArticleService articleService) {
-//        this.articleService = articleService;
-//    }
-
     @Override
     public ResponseEntity<ArticleView> getArticleDetails(UUID uuid) {
 
@@ -71,7 +67,8 @@ public class ArticleController implements ArticlesApi {
     public ResponseEntity<ArticleUploadInstruction> registerArticle(@Valid ArticleRegistration articleRegistration) {
         // 1. Extrai o ID do usuário autenticado (Firebase UID)
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        String firebaseUid = (String) authentication.getPrincipal();
+        String principalString = (String) authentication.getPrincipal();
+        UUID firebaseUid = UUID.nameUUIDFromBytes(principalString.getBytes());
 
         // 2. Chama o serviço para registrar e gerar as URLs
         ArticleUploadInstruction instruction = articleService.registerArticle(firebaseUid, articleRegistration);
@@ -91,7 +88,12 @@ public class ArticleController implements ArticlesApi {
 
         // 1. Extrai o ID do usuário autenticado (Firebase UID)
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        String currentUserUid = (String) authentication.getPrincipal();
+
+// 1. Faz o cast para o tipo real que está armazenado (String)
+        String principalString = (String) authentication.getPrincipal();
+
+// 2. Gera um UUID consistente baseado nos bytes dessa String
+        UUID currentUserUid = UUID.nameUUIDFromBytes(principalString.getBytes());
 
         // 2. Chama a regra de negócio
         BoostResponse response = articleService.toggleBoost(id, currentUserUid);
@@ -100,4 +102,22 @@ public class ArticleController implements ArticlesApi {
         return ResponseEntity.ok(response);
     }
 
+    @Override
+    public ResponseEntity<Void> deleteArticle(UUID uuid) {
+
+        // 1. Extrai o ID do usuário autenticado atual do Spring Security
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build(); // 401
+        }
+
+        String currentUserUid = (String) authentication.getPrincipal();
+
+        // 2. Chama a regra de negócio para deleção
+        articleService.deleteArticle(uuid, currentUserUid);
+
+        // 3. Retorna Status 204 No Content (padrão REST para deleção bem-sucedida)
+        return ResponseEntity.noContent().build();
+    }
 }

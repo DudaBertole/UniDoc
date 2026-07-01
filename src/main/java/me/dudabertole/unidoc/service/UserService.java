@@ -2,23 +2,28 @@ package me.dudabertole.unidoc.service;
 
 import me.dudabertole.unidoc.entity.User;
 import me.dudabertole.unidoc.model.UpdateUserProfile;
+import me.dudabertole.unidoc.repository.ArticleRepository;
 import me.dudabertole.unidoc.repository.UserRepository;
 import me.dudabertole.unidoc.model.UserProfile;
 import me.dudabertole.unidoc.model.UserInfo;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.UUID;
+
 @Service
 public class UserService {
 
     private final UserRepository userRepository;
+    private final ArticleRepository articleRepository;
 
-    public UserService(UserRepository repository) {
+    public UserService(UserRepository repository, ArticleRepository articleRepository) {
         this.userRepository = repository;
+        this.articleRepository = articleRepository;
     }
 
     @Transactional
-    public void createUserProfile(String firebaseUid, String email, UserProfile profile) {
+    public void createUserProfile(UUID firebaseUid, String email, UserProfile profile) {
         if (userRepository.existsById(firebaseUid)) {
             throw new IllegalArgumentException("Usuário já existe.");
         }
@@ -35,14 +40,12 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
-    public UserInfo getCurrentUserInfo(String firebaseUid) {
+    public UserInfo getCurrentUserInfo(UUID firebaseUid) {
         User user = userRepository.findById(firebaseUid)
                 .orElseThrow(() -> new RuntimeException("Usuário não encontrado"));
 
-        // Nota: Para preencher totalPublishedArticles e totalBoosts,
-        // você precisará fazer queries nas tabelas 'articles' e 'article_boosts'.
-        int mockTotalArticles = 42;
-        int mockTotalBoosts = 42;
+        int totalArticles = articleRepository.countByPublisherId(firebaseUid);
+        int totalBoosts = articleRepository.countTotalBoostsByPublisherId(firebaseUid);
 
         return new UserInfo(
                 user.getFirstName(),
@@ -50,13 +53,13 @@ public class UserService {
                 user.getBirthDate(),
                 user.getUniversity(),
                 user.getEmail(),
-                mockTotalArticles,
-                mockTotalBoosts
+                totalArticles,
+                totalBoosts
         );
     }
 
     @Transactional
-    public UserInfo updateUserProfile(String firebaseUid, UpdateUserProfile updateData) {
+    public UserInfo updateUserProfile(UUID firebaseUid, UpdateUserProfile updateData) {
         User user = userRepository.findById(firebaseUid)
                 .orElseThrow(() -> new RuntimeException("Usuário não encontrado"));
 

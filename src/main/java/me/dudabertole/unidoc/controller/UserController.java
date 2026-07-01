@@ -15,6 +15,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.UUID;
+
 @RestController
 @AllArgsConstructor
 public class UserController implements UsersApi {
@@ -29,7 +31,8 @@ public class UserController implements UsersApi {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
         // 2. Extrai o UID (que colocamos como Principal no filtro)
-        String firebaseUid = (String) authentication.getPrincipal();
+        String principalString = (String) authentication.getPrincipal();
+        UUID firebaseUid = UUID.nameUUIDFromBytes(principalString.getBytes());
 
         // 3. Extrai o E-mail do token completo (que colocamos como Credentials no filtro)
         FirebaseToken firebaseToken = (FirebaseToken) authentication.getCredentials();
@@ -48,7 +51,8 @@ public class UserController implements UsersApi {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
         // 2. Extrai o UID (que colocamos como Principal no filtro)
-        String firebaseUid = (String) authentication.getPrincipal();
+        String principalString = (String) authentication.getPrincipal();
+        UUID firebaseUid = UUID.nameUUIDFromBytes(principalString.getBytes());
 
         // 3. Chama o service passando o UID real do usuário autenticado
         UserInfo userInfo = userService.getCurrentUserInfo(firebaseUid);
@@ -63,7 +67,8 @@ public class UserController implements UsersApi {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
         // 2. Extrai o UID do usuário autenticado (configurado no filtro)
-        String firebaseUid = (String) authentication.getPrincipal();
+        String principalString = (String) authentication.getPrincipal();
+        UUID firebaseUid = UUID.nameUUIDFromBytes(principalString.getBytes());
 
         // 3. Chama o service passando o UID real e os dados que serão atualizados
         UserInfo updatedInfo = userService.updateUserProfile(firebaseUid, updateUserProfile);

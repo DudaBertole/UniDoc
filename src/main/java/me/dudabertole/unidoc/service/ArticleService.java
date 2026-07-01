@@ -17,21 +17,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-
 import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import java.time.LocalDate;
 
 @Service
 public class ArticleService {
 
     private final ArticleRepository articleRepository;
-    private UserRepository userRepository;
-    private S3Service s3Service;
+    private final UserRepository userRepository;
+    private final S3Service s3Service;
 
-    public ArticleService(ArticleRepository articleRepository, UserRepository userRepository, S3Service s3Service ) {
+    public ArticleService(ArticleRepository articleRepository, UserRepository userRepository, S3Service s3Service) {
         this.articleRepository = articleRepository;
         this.userRepository = userRepository;
         this.s3Service = s3Service;
@@ -40,34 +38,26 @@ public class ArticleService {
     public PaginatedArticlePreview searchArticles(String query, Integer minYear, WorkType workType,
                                                   Integer page, Integer size, String sortParam) {
 
-        // 1. Mapeia a string do Swagger (sortParam) para o Sort do Spring
         Sort sort = getSortDirection(sortParam);
-
-        // 2. Cria o objeto de paginação
         Pageable pageable = PageRequest.of(page, size, sort);
 
-        // 3. Monta os filtros dinâmicos
         Specification<Article> spec = Specification.where(ArticleSpecification.containsKeyword(query))
                 .and(ArticleSpecification.publishedAfterYear(minYear))
                 .and(ArticleSpecification.hasWorkType(workType));
 
-        // 4. Vai no banco de dados e busca SÓ a página solicitada
         Page<Article> articlePage = articleRepository.findAll(spec, pageable);
 
-        // 5. Converte a resposta do banco (Page<Article>) para o DTO do Swagger (PaginatedArticlePreview)
         return mapToPaginatedResponse(articlePage);
     }
-
-    // --- Métodos Auxiliares Privados ---
 
     private Sort getSortDirection(String sortParam) {
         if (sortParam == null) return Sort.by(Sort.Direction.DESC, "boostCount"); // default
 
         return switch (sortParam.toUpperCase()) {
             case "TITLE" -> Sort.by(Sort.Direction.ASC, "title");
-            case "PUBLICATION_DATE" -> Sort.by(Sort.Direction.DESC, "publicationDate"); // mais novos primeiro
+            case "PUBLICATION_DATE" -> Sort.by(Sort.Direction.DESC, "publicationDate");
             case "WORK_TYPE" -> Sort.by(Sort.Direction.ASC, "workType");
-            case "BOOST_COUNT" -> Sort.by(Sort.Direction.DESC, "boostCount"); // mais bombados primeiro
+            case "BOOST_COUNT" -> Sort.by(Sort.Direction.DESC, "boostCount");
             default -> Sort.by(Sort.Direction.DESC, "boostCount");
         };
     }
@@ -77,7 +67,8 @@ public class ArticleService {
             ArticlePreview preview = new ArticlePreview();
             preview.setId(article.getId());
             preview.setTitle(article.getTitle());
-            // preview.setAuthors(article.getAuthors()); // Ajuste dependendo de como salva os autores
+            preview.setAuthors(article.getAuthors());
+            preview.setPublicationDate(article.getPublicationDate());
             preview.setWorkType(me.dudabertole.unidoc.model.WorkType.fromValue(article.getWorkType().name()));
             preview.setBoostCount(article.getBoostCount());
             return preview;
@@ -95,13 +86,11 @@ public class ArticleService {
     }
 
     @Transactional
-    public ArticleUploadInstruction registerArticle(String firebaseUid, ArticleRegistration registration) {
+    public ArticleUploadInstruction registerArticle(UUID firebaseUid, ArticleRegistration registration) {
 
-        // 1. Busca o usuário que está publicando
         User publisher = userRepository.findById(firebaseUid)
                 .orElseThrow(() -> new RuntimeException("Article not found"));
 
-        // 2. Cria a entidade do Artigo e salva no banco
         Article article = new Article();
         article.setId(UUID.randomUUID());
         article.setTitle(registration.getTitle());
@@ -111,55 +100,49 @@ public class ArticleService {
         article.setAuthors(registration.getAuthors());
         article.setPublisher(publisher);
 
-        // 3. Define as chaves (caminhos) onde os arquivos serão salvos no S3
         String pdfKey = "articles/" + article.getId() + "/document.pdf";
         article.setPdfKey(pdfKey);
 
         String coverUploadUrl = null;
         if (Boolean.TRUE.equals(registration.getHasCover())) {
-            String coverKey = "articles/" + article.getId() + "/cover.jpg"; // ou .png
+            String coverKey = "articles/" + article.getId() + "/cover.jpg";
             article.setCoverKey(coverKey);
             coverUploadUrl = s3Service.generatePresignedUploadUrl(coverKey);
         }
 
-        // Salva as chaves no banco de dados
         articleRepository.save(article);
 
-        // 4. Gera a URL pré-assinada do PDF
         String pdfUploadUrl = s3Service.generatePresignedUploadUrl(pdfKey);
 
-        // 5. Monta o DTO de resposta
         ArticleUploadInstruction instruction = new ArticleUploadInstruction();
         instruction.setArticleId(article.getId());
         instruction.setPdfUploadUrl(URI.create(pdfUploadUrl));
-        assert coverUploadUrl != null;
-        instruction.setCoverUploadUrl(URI.create(coverUploadUrl));
+
+        // Sem JsonNullable, passamos a URI direta se existir
+        if (coverUploadUrl != null) {
+            instruction.setCoverUploadUrl(URI.create(coverUploadUrl));
+        }
 
         return instruction;
     }
 
     public ArticleView getArticleDetails(UUID articleId, String currentUserUid) {
 
-        // 1. Busca o artigo no banco ou lança erro 404
         Article article = articleRepository.findById(articleId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Article not found"));
 
-        // 2. Verifica se o usuário atual curtiu (boosted) o artigo
         boolean boostedByMe = false;
+        boolean publishedByMe = false;
         if (currentUserUid != null) {
             boostedByMe = article.getBoostedBy().stream()
                     .anyMatch(user -> user.getId().equals(currentUserUid));
+
+            publishedByMe = article.getPublisher().getId().toString().equals(currentUserUid);
         }
 
-        // 3. Gera a URL temporária da capa (se existir)
-        String coverUrl = null;
-        if (article.getCoverKey() != null) {
-            coverUrl = s3Service.generatePresignedDownloadUrl(article.getCoverKey());
-        }
 
-        // 4. Mapeia para o DTO de visualização
         ArticleView view = new ArticleView();
-        view.setId(article.getId()); // Ajuste conforme o tipo gerado pelo seu OpenAPI (Integer)
+        view.setId(article.getId());
         view.setTitle(article.getTitle());
         view.setAuthors(article.getAuthors());
         view.setPublicationDate(article.getPublicationDate());
@@ -167,13 +150,14 @@ public class ArticleService {
         view.setAbstract(article.getAbstractText());
         view.setBoostCount(article.getBoostCount());
         view.setBoostedByMe(boostedByMe);
+        view.setPublishedBy(article.getPublisher().getId());
+        view.setPublishedByMe(publishedByMe);
+
 
         if (article.getCoverKey() != null && !article.getCoverKey().isBlank()) {
             String generatedUrl = s3Service.generatePresignedDownloadUrl(article.getCoverKey());
-
-            // Só tenta converter para URI se a AWS realmente devolver uma URL válida
             if (generatedUrl != null) {
-                view.setCoverUrl(java.net.URI.create(generatedUrl));
+                view.setCoverUrl(URI.create(generatedUrl));
             }
         }
 
@@ -182,21 +166,19 @@ public class ArticleService {
 
     public ArticleUrl getArticleFileUrl(UUID articleId) {
 
-        // 1. Busca o artigo no banco ou lança erro 404
         Article article = articleRepository.findById(articleId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Artigo não encontrado"));
 
-        // 2. Valida se o artigo realmente possui um PDF atrelado
         if (article.getPdfKey() == null || article.getPdfKey().isBlank()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Arquivo PDF não encontrado para este artigo");
         }
 
-        // 3. Gera a URL temporária de leitura (GET) na AWS
         String generatedUrl = s3Service.generatePresignedDownloadUrl(article.getPdfKey());
 
-        // 4. Monta o DTO de resposta exigido pelo Swagger
         ArticleUrl articleUrlResponse = new ArticleUrl();
+
         if (generatedUrl != null) {
+            // Sem JsonNullable
             articleUrlResponse.setPdfUrl(URI.create(generatedUrl));
         }
 
@@ -204,40 +186,61 @@ public class ArticleService {
     }
 
     @Transactional
-    public BoostResponse toggleBoost(UUID articleId, String userUid) {
+    public BoostResponse toggleBoost(UUID articleId, UUID userUid) {
 
-        // 1. Busca o artigo
         Article article = articleRepository.findById(articleId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Artigo não encontrado"));
 
-        // 2. Busca o usuário que está fazendo a requisição
         User user = userRepository.findById(userUid)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Usuário não encontrado"));
 
-        // 3. Checa o estado atual e inverte (Toggle)
         boolean isBoostedNow;
 
-        // Assumindo que sua entidade Article tem um getBoostedBy() que retorna um Set<User> ou List<User>
         if (article.getBoostedBy().contains(user)) {
-            article.getBoostedBy().remove(user); // Remove o boost
+            article.getBoostedBy().remove(user);
             isBoostedNow = false;
         } else {
-            article.getBoostedBy().add(user);    // Adiciona o boost
+            article.getBoostedBy().add(user);
             isBoostedNow = true;
         }
 
-        // Opcional: Se você tiver uma coluna física "boost_count" na tabela, atualize-a aqui
-        // Se ela for apenas calculada pelo tamanho da lista, não precisa fazer nada.
         int newTotalBoosts = article.getBoostedBy().size();
 
-        // Salva a alteração no banco
         articleRepository.save(article);
 
-        // 4. Monta a resposta DTO
         BoostResponse response = new BoostResponse();
         response.setBoosted(isBoostedNow);
         response.setBoostCount(newTotalBoosts);
 
         return response;
+    }
+
+    @Transactional
+    public void deleteArticle(UUID articleId, String currentUserUid) {
+
+        // 1. Busca o artigo no banco de dados (lança 404 se não existir)
+        Article article = articleRepository.findById(articleId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Artigo não encontrado"));
+
+        // 2. Verifica se o usuário que fez a requisição é o dono (publisher) do artigo (lança 403 se não for)
+        if (!article.getPublisher().getId().equals(currentUserUid)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Você não tem permissão para deletar este artigo");
+        }
+
+        // 3. Remove os arquivos atrelados no S3 (Boas práticas para não deixar lixo na nuvem)
+        // Nota: Assumindo que você crie um método deleteFile(String key) no seu S3Service
+        /*
+        if (article.getPdfKey() != null) {
+            s3Service.deleteFile(article.getPdfKey());
+        }
+        if (article.getCoverKey() != null) {
+            s3Service.deleteFile(article.getCoverKey());
+        }
+        */
+
+        // 4. Deleta o artigo do banco de dados
+        // Como 'article_authors' e 'article_boosts' estão com ON DELETE CASCADE e @ManyToMany,
+        // o JPA/Banco cuidará de limpar as tabelas dependentes automaticamente.
+        articleRepository.delete(article);
     }
 }
